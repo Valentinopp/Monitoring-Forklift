@@ -23,7 +23,7 @@ def hitung_kerusakan(teks):
 
 st.markdown("""
     <style>
-    /* HANYA tombol di SIDEBAR yang diberi style khusus */
+    /* Style tombol sidebar */
     [data-testid="stSidebar"] div.stButton > button {
         width: 100% !important;
         text-align: left !important;
@@ -38,12 +38,24 @@ st.markdown("""
         text-align: left !important;
     }
 
-    /* Sembunyikan MainMenu, footer, dan avatar Streamlit */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    .css-1rs6os.edgvbvh3 {visibility: hidden;}
+    /* Sembunyikan MainMenu dan footer */
+    #MainMenu, footer {
+        display: none !important;
+    }
+
+    /* Sembunyikan avatar/foto pengguna dan "Hosted by Streamlit" */
+    [data-testid="stSidebarUserContent"] {
+        display: none !important;
+    }
+
+    /* Sembunyikan elemen 'Made with Streamlit' di footer kanan */
+    .css-cio0dv.ea3mdgi1 {
+        display: none !important;
+    }
+
     </style>
 """, unsafe_allow_html=True)
+
 
 # Daftar menu
 menu_items = [
