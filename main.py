@@ -37,9 +37,13 @@ st.markdown("""
     [data-testid="stSidebar"] h3 {
         text-align: left !important;
     }
+
+    /* Sembunyikan MainMenu, footer, dan avatar Streamlit */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    .css-1rs6os.edgvbvh3 {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
-
 
 # Daftar menu
 menu_items = [
