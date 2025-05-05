@@ -4,6 +4,73 @@ import numpy as np
 from datetime import datetime, timedelta
 import altair as alt
 import os
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+
+# Ganti dengan ID spreadsheet dan nama sheet Anda
+SPREADSHEET_ID = '1yVTIWSOBz22XaTkF6iYD90HuYXJvdzqiGaEcW-K6l6g'
+DATA_SPK = "data_spk"
+HM_HARIAN = "HM_Harian"
+DATA_OLI = "data_oli"
+PENGGUNAAN_FK = "penggunaan_forklift"
+
+# File credentials.json dari Google Cloud Console (gunakan service account)
+SERVICE_ACCOUNT_FILE = 'monitoring-forklift-578147b20ecd.json'
+
+# Scope untuk Google Sheets API
+SCOPES = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive'
+]
+
+
+# Autentikasi dan bangun service (letakkan di cache juga untuk efisiensi)
+@st.cache_resource
+def get_service():
+    try:
+        creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+        return build('sheets', 'v4', credentials=creds)
+    except Exception as e:
+        st.error("Gagal terhubung ke Google Sheets, periksa koneksi internet Anda.")
+        st.stop()  # Hentikan eksekusi lebih lanjut
+
+service = get_service()
+
+# --- Membaca Data dari Sheet (dengan cache) ---
+@st.cache_data(ttl=28800, show_spinner=False)  # cache selama 1 jam, bisa diubah sesuai kebutuhan
+def read_sheet(SHEET_NAME):
+    try:
+        result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"{SHEET_NAME}"
+        ).execute()
+        values = result.get('values', [])
+        df = pd.DataFrame(values[1:], columns=values[0]) if values else pd.DataFrame()
+        return df
+    except Exception as e:
+        st.error(f"Tidak dapat membaca data dari sheet '{SHEET_NAME}': {e}")
+        return pd.DataFrame()  # Kembalikan dataframe kosong sebagai fallback
+
+# --- Menulis Data ke Sheet ---
+def write_to_sheet(SHEET_NAME, dataframe):
+    try:
+        service.spreadsheets().values().clear(
+            spreadsheetId=SPREADSHEET_ID,
+            range=SHEET_NAME
+        ).execute()
+        
+        values = [dataframe.columns.tolist()] + dataframe.values.tolist()
+        body = {'values': values}
+        service.spreadsheets().values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=SHEET_NAME,
+            valueInputOption="RAW",
+            body=body
+        ).execute()
+        
+        read_sheet.clear()
+    except Exception as e:
+        st.error(f"Gagal menyimpan data ke sheet '{SHEET_NAME}': {e}")
 
 def hitung_kerusakan(teks):
     if not teks or teks == "":
@@ -20,10 +87,14 @@ def hitung_kerusakan(teks):
 
     return jumlah_kerusakan
 
+df =  read_sheet(DATA_SPK)
+df_hmharian = read_sheet(HM_HARIAN)
+
+
 
 st.markdown("""
     <style>
-    /* Style tombol sidebar */
+    /* HANYA tombol di SIDEBAR yang diberi style khusus */
     [data-testid="stSidebar"] div.stButton > button {
         width: 100% !important;
         text-align: left !important;
@@ -37,22 +108,6 @@ st.markdown("""
     [data-testid="stSidebar"] h3 {
         text-align: left !important;
     }
-
-    /* Sembunyikan MainMenu dan footer */
-    #MainMenu, footer {
-        display: none !important;
-    }
-
-    /* Sembunyikan avatar/foto pengguna dan "Hosted by Streamlit" */
-    [data-testid="stSidebarUserContent"] {
-        display: none !important;
-    }
-
-    /* Sembunyikan elemen 'Made with Streamlit' di footer kanan */
-    .css-cio0dv.ea3mdgi1 {
-        display: none !important;
-    }
-
     </style>
 """, unsafe_allow_html=True)
 
@@ -82,20 +137,10 @@ for item in menu_items:
 menu = st.session_state.menu  # Gunakan nilai dari session_state
 
 
-# File Excel
-excel_file = "data_spk.xlsx"
-if not os.path.exists(excel_file):
-    header_template = pd.DataFrame(columns=[
-        "Tanggal", "Nomor SPK", "Area / Mesin", "Mulai Pengerjaan", "Selesai Pengerjaan",
-        "Jenis Kerusakan", "Penyelesaian", "Keterangan/Penyebab",
-        "Tanggal Pengerjaan", "Masuk Bengkel", "Keluar Bengkel"
-    ])
-    header_template.to_excel(excel_file, index=False)
+
 
 new_data = None
 
-
-    
 if menu == "SPK":
     st.session_state.shift3 = False
     
@@ -103,11 +148,9 @@ if menu == "SPK":
     st.header("Tabel Data SPK")
     
     try:
-        all_data = pd.read_excel(excel_file, dtype={"Nomor SPK": str})
-        all_data['Tanggal'] = pd.to_datetime(all_data['Tanggal']).dt.strftime('%Y-%m-%d')
-        all_data = all_data.sort_values("Tanggal", ascending=False)
-        all_data = all_data.reset_index(drop=True)
-        st.dataframe(all_data)
+        df = df.sort_values("Tanggal", ascending=False)
+        df = df.reset_index(drop=True)
+        st.dataframe(df)
     except Exception as e:
         st.error(f"Gagal membaca file SPK: {e}")
 
@@ -173,7 +216,7 @@ if menu == "SPK":
                 if nomor == "":
                     st.error("Nomor SPK tidak boleh kosong")
                 else:
-                    if str(nomor) in list(all_data["Nomor SPK"]):
+                    if str(nomor) in list(df["Nomor SPK"]):
                         st.error("Nomor SPK suda ada")
                     else:
                         try:
@@ -210,13 +253,8 @@ if menu == "SPK":
                             "Total Kerusakan": [hitung_kerusakan(jenis_kerusakan)]
                         })
 
-                        try:
-                            existing_data = pd.read_excel(excel_file, dtype={"Nomor SPK": str})
-                        except:
-                            existing_data = pd.DataFrame()
-
-                        updated_data = pd.concat([existing_data, new_data], ignore_index=True)
-                        updated_data.to_excel(excel_file, index=False)
+                        updated_data = pd.concat([df, new_data], ignore_index=True)
+                        write_to_sheet(DATA_SPK, updated_data)
 
                         st.success("Berhasil")
 
@@ -236,7 +274,6 @@ if menu == "SPK":
         edit_mode = False
 
         if search_spk:
-            df = pd.read_excel(excel_file, dtype={"Nomor SPK": str})
             matched_data = df[df["Nomor SPK"] == search_spk]
 
             if matched_data.empty:
@@ -317,9 +354,6 @@ if menu == "SPK":
                         df.loc[idx, "Jenis Kerusakan"] = jenis_kerusakan_edit
                         df.loc[idx, "Keterangan/Penyebab"] = penyebab_edit
                         
-                        
-                        # df.loc[idx, "Masuk Bengkel"] = masuk_bengkel_edit
-                        # df.loc[idx, "Keluar Bengkel"] = keluar_bengkel_edit
                         try:
                             masuk_bengkel_final = (
                                 pd.to_datetime(masuk_bengkel_edit, format='%H:%M').strftime('%H:%M')
@@ -343,9 +377,10 @@ if menu == "SPK":
 
 
 
-                        df.to_excel(excel_file, index=False)
+                        write_to_sheet(DATA_SPK, df)
 
                         st.success("Data berhasil diperbarui!")
+                        st.cache_data.clear()
                         st.session_state.editData = False
                         st.rerun()
 
@@ -360,7 +395,7 @@ if menu == "SPK":
 
         if hapus_nomor_spk.strip() != "":
             try:
-                df = pd.read_excel(excel_file, dtype={"Nomor SPK": str})
+                
                 matching_data = df[df["Nomor SPK"] == hapus_nomor_spk]
 
                 if matching_data.empty:
@@ -374,7 +409,7 @@ if menu == "SPK":
                     if konfirmasi_hapus:
                         if st.button("Hapus Data SPK Sekarang"):
                             df = df[df["Nomor SPK"] != hapus_nomor_spk]
-                            df.to_excel(excel_file, index=False)
+                            write_to_sheet(DATA_SPK, df)
                             st.success("Data SPK berhasil dihapus.")
                             st.session_state.hapusData = False
                             st.rerun()
@@ -390,7 +425,7 @@ if menu == "SPK":
     if st.session_state.download:
         # Fitur download data berdasarkan tanggal tertentu
         st.subheader("Download Data Berdasarkan Tanggal")
-        df = pd.read_excel(excel_file, dtype={"Nomor SPK": str})
+        
         df['Tanggal'] = pd.to_datetime(df['Tanggal'])
 
 
@@ -402,7 +437,7 @@ if menu == "SPK":
                 raise ValueError("Tanggal akhir tidak boleh lebih kecil dari tanggal awal.")
 
             # Filter data berdasarkan tanggal
-            filtered_df = df[(df['Tanggal'] >= pd.to_datetime(start_date)) & (df['Tanggal'] <= pd.to_datetime(end_date))]
+            filtered_df = df[(pd.to_datetime(df['Tanggal']) >= pd.to_datetime(start_date)) & (pd.to_datetime(df['Tanggal']) <= pd.to_datetime(end_date))]
 
             if not filtered_df.empty:
                 from io import BytesIO
@@ -428,8 +463,6 @@ if menu == "SPK":
 if menu == "HM 3 Shift":
  
     st.header("HM Harian Tiap Shift")
-    # Nama file Excel
-    file_excel = "HM_Harian.xlsx"
 
     # List Forklift dan Shift
     forklifts = ["FK 14", "FK 16", "FK 17", "FK 19", "FK 20", "FK 21", "FK 22", "FK 23", "FK 24", "FK 27",
@@ -448,11 +481,7 @@ if menu == "HM 3 Shift":
     date_range = pd.date_range(start=start_date, end=end_date)
 
     # Load data sebelumnya jika ada
-    if os.path.exists(file_excel):
-        df_old = pd.read_excel(file_excel)
-        df_old['Tanggal'] = pd.to_datetime(df_old['Tanggal']).dt.date
-    else:
-        df_old = pd.DataFrame(columns=['Tanggal'] + column_headers)
+    df_hmharian['Tanggal'] = pd.to_datetime(df_hmharian['Tanggal']).dt.date
 
     # Siapkan tabel baru dengan data lama jika ada
     data_baru = []
@@ -460,7 +489,7 @@ if menu == "HM 3 Shift":
     for tanggal in date_range:
         row = {'Tanggal': tanggal.date()}
         for col in column_headers:
-            match = df_old[(df_old['Tanggal'] == tanggal.date())]
+            match = df_hmharian[(df_hmharian['Tanggal'] == tanggal.date())]
             if not match.empty and col in match.columns:
                 val = match.iloc[0][col]
                 row[col] = '' if pd.isna(val) else str(val)
@@ -479,24 +508,24 @@ if menu == "HM 3 Shift":
             df_input[col] = df_input[col].astype(str)
 
     # Tampilkan editor
-    df_edited = st.data_editor(df_input, num_rows="dynamic", use_container_width=True)
+    df_edited = st.data_editor(df_input, num_rows="dynamic", use_container_width=True, column_config={
+        "Tanggal": st.column_config.Column("Tanggal", pinned=True)})
 
     # Tombol simpan
     if st.button("Simpan Data"):
-        df_old_filtered = df_old[~df_old['Tanggal'].isin(df_input['Tanggal'])]
+        df_old_filtered = df_hmharian[~df_hmharian['Tanggal'].isin(df_input['Tanggal'])]
         df_final = pd.concat([df_old_filtered, df_edited], ignore_index=True)
         df_final = df_final.sort_values(by='Tanggal')
-        df_final.to_excel(file_excel, index=False)
+        df_final["Tanggal"] = pd.to_datetime(df_final["Tanggal"]).dt.strftime("%Y-%m-%d")
+        write_to_sheet(HM_HARIAN, df_final)
         st.success("Data berhasil disimpan!")
+        st.rerun()
         
 if menu == "Pemakaian Harian":
     st.header("Penggunaan forklift Harian(Jam)")
 
-    # Baca data dari file Excel (sesuaikan nama file jika perlu)
-    df = pd.read_excel("HM_Harian.xlsx")
-
     # Pastikan kolom 'Tanggal' bertipe datetime
-    df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
+    df_hmharian['Tanggal'] = pd.to_datetime(df_hmharian['Tanggal'], errors='coerce')
 
     # Fungsi untuk mencoba mengonversi ke float, jika tidak berhasil maka biarkan nilainya asli
     def convert_to_numeric(value):
@@ -506,17 +535,17 @@ if menu == "Pemakaian Harian":
             return value
 
     # Ubah semua kolom kecuali 'Tanggal'
-    df.iloc[:, 1:] = df.iloc[:, 1:].applymap(convert_to_numeric)
+    df_hmharian.iloc[:, 1:] = df_hmharian.iloc[:, 1:].applymap(convert_to_numeric)
 
     # DataFrame untuk hasil penggunaan
-    usage_df = df.copy()
+    usage_df = df_hmharian.copy()
 
     num_forklifts = 26       # Total forklift
     shifts_per_forklift = 3  # Shift per forklift
     total_columns = num_forklifts * shifts_per_forklift
 
     # Kolom-kolom yang akan dihitung (semua kolom kecuali 'Tanggal')
-    cols = df.columns[1:total_columns + 1]
+    cols = df_hmharian.columns[1:total_columns + 1]
 
     # Proses per forklift: kumpulkan data dari ketiga shift per forklift secara berurutan
     for i in range(num_forklifts):
@@ -525,19 +554,19 @@ if menu == "Pemakaian Harian":
         
         # Kumpulkan posisi (baris, kolom) untuk forklift ini secara berurutan
         positions = []
-        for r in range(len(df)):
+        for r in range(len(df_hmharian)):
             for col in forklift_cols:
                 positions.append((r, col))
         
         # Untuk setiap posisi, jika nilainya angka, cari nilai numerik berikutnya dalam urutan positions
         for index, (r, col) in enumerate(positions):
-            current_val = df.at[r, col]
+            current_val = df_hmharian.at[r, col]
             if isinstance(current_val, (int, float)):
                 # Cari nilai numerik berikutnya dalam urutan positions
                 next_numeric = None
                 for j in range(index + 1, len(positions)):
                     r_next, col_next = positions[j]
-                    candidate = df.at[r_next, col_next]
+                    candidate = df_hmharian.at[r_next, col_next]
                     if isinstance(candidate, (int, float)):
                         next_numeric = candidate
                         break
@@ -549,6 +578,15 @@ if menu == "Pemakaian Harian":
             else:
                 # Jika bukan angka, langsung salin nilai aslinya
                 usage_df.at[r, col] = current_val
+                
+    # Konversi datetime dan NaN agar bisa ditulis ke sheet
+    usage_df_to_save = usage_df.copy()
+    usage_df_to_save = usage_df_to_save.fillna("")
+    usage_df_to_save['Tanggal'] = usage_df_to_save['Tanggal'].astype(str)
+
+    # Tulis ke Google Sheet
+    write_to_sheet(PENGGUNAAN_FK, usage_df_to_save)
+
 
     # Dua field untuk memasukkan rentang tanggal (default adalah tanggal hari ini)
     st.write("Pilih rentang tanggal untuk menampilkan data:")
@@ -565,11 +603,9 @@ if menu == "Pemakaian Harian":
 if menu == "Total Jam per Hari":
     st.header("Jumlah Jam Penggunaan Forklift Per Hari")
 
-    # Baca data dari file Excel
-    df = pd.read_excel("HM_Harian.xlsx")
 
     # Pastikan kolom 'Tanggal' bertipe datetime
-    df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
+    df_hmharian['Tanggal'] = pd.to_datetime(df_hmharian['Tanggal'], errors='coerce')
 
     # Fungsi untuk mencoba mengonversi ke float, jika tidak maka nilai aslinya disimpan
     def convert_to_numeric(value):
@@ -579,14 +615,14 @@ if menu == "Total Jam per Hari":
             return value
 
     # Ubah semua kolom kecuali 'Tanggal'
-    df.iloc[:, 1:] = df.iloc[:, 1:].applymap(convert_to_numeric)
+    df_hmharian.iloc[:, 1:] = df_hmharian.iloc[:, 1:].applymap(convert_to_numeric)
 
-    # Buat salinan df untuk menyimpan hasil perhitungan usage
-    usage_df = df.copy()
+    # Buat salinan df_hmharian untuk menyimpan hasil perhitungan usage
+    usage_df = df_hmharian.copy()
 
     # --- Hitung penggunaan tiap shift per forklift ---
     # Kita hanya memproses kolom yang namanya diawali dengan "FK" (mengabaikan kolom Truk)
-    forklift_cols_all = [col for col in df.columns if col.startswith("FK")]
+    forklift_cols_all = [col for col in df_hmharian.columns if col.startswith("FK")]
 
     # Jumlah forklift didapat dari banyaknya kolom FK dibagi 3 (karena tiap forklift memiliki 3 shift)
     shifts_per_forklift = 3
@@ -599,20 +635,20 @@ if menu == "Total Jam per Hari":
         
         # Kumpulkan posisi (indeks baris, nama kolom) secara berurutan untuk forklift ini
         positions = []
-        for r in range(len(df)):
+        for r in range(len(df_hmharian)):
             for col in forklift_cols:
                 positions.append((r, col))
         
         # Untuk tiap posisi, jika nilainya angka, cari nilai angka berikutnya dalam urutan positions
         for index, (r, col) in enumerate(positions):
-            current_val = df.at[r, col]
+            current_val = df_hmharian.at[r, col]
             # Hanya proses jika nilai saat ini adalah angka
             if isinstance(current_val, (int, float)):
                 next_numeric = None
                 # Cari nilai numerik berikutnya di positions (abaikan nilai non-angka)
                 for j in range(index + 1, len(positions)):
                     r_next, col_next = positions[j]
-                    candidate = df.at[r_next, col_next]
+                    candidate = df_hmharian.at[r_next, col_next]
                     if isinstance(candidate, (int, float)):
                         next_numeric = candidate
                         break
@@ -659,77 +695,75 @@ if menu == "Tingkat Kerusakan":
                 "FK 27", "FK 28", "FK 29", "FK 35", "FK 38", "FK 40", "FK 41", "FK 43", "FK 46",
                 "FK 49", "FK 50", "FK 51", "FK 52", "FK 53"]
 
-    # Fungsi untuk load data dengan caching agar loading lebih cepat
+    # Fungsi untuk load data penggunaan forklift saja
     @st.cache_data
-    def load_data():
-        data_spk = pd.read_excel("data_spk.xlsx")
-        penggunaan = pd.read_excel("penggunaan_forklift.xlsx")
-        # Pastikan kolom Tanggal dikonversi ke datetime
-        data_spk["Tanggal"] = pd.to_datetime(data_spk["Tanggal"])
-        penggunaan["Tanggal"] = pd.to_datetime(penggunaan["Tanggal"])
-        return data_spk, penggunaan
+    def load_penggunaan():
+        penggunaan = read_sheet(PENGGUNAAN_FK)
+        penggunaan["Tanggal"] = pd.to_datetime(penggunaan["Tanggal"]).dt.date
+        return penggunaan
 
-    # Load data
-    data_spk, penggunaan = load_data()
+    # Load hanya data penggunaan
+    penggunaan = load_penggunaan()
+
+    # Pastikan kolom tanggal di df juga dalam format date (bukan datetime)
+    df["Tanggal"] = pd.to_datetime(df["Tanggal"]).dt.date
 
     st.title("Analisis Pemakaian Forklift dan Kerusakan")
 
     st.markdown("Pilih rentang tanggal untuk analisis:")
 
     # Input tanggal dengan nilai default
-    start_date = st.date_input("Tanggal Mulai", value=datetime(datetime.now().year, 1, 1))
-    end_date   = st.date_input("Tanggal Akhir", value=datetime.now())
+    start_date = st.date_input("Tanggal Mulai", value=datetime(datetime.now().year, 1, 1).date())
+    end_date   = st.date_input("Tanggal Akhir", value=datetime.now().date())
 
-    # Handling jika tanggal mulai melebihi tanggal akhir
     if start_date > end_date:
         st.error("Error: Tanggal Mulai tidak boleh lebih besar dari Tanggal Akhir.")
     else:
-        # Filter data berdasarkan rentang tanggal
-        mask_spk = (data_spk["Tanggal"] >= pd.to_datetime(start_date)) & (data_spk["Tanggal"] <= pd.to_datetime(end_date))
-        mask_penggunaan = (penggunaan["Tanggal"] >= pd.to_datetime(start_date)) & (penggunaan["Tanggal"] <= pd.to_datetime(end_date))
-        
-        spk_filtered = data_spk.loc[mask_spk].copy()
+        # Filter berdasarkan tanggal
+        mask_spk = (df["Tanggal"] >= start_date) & (df["Tanggal"] <= end_date)
+        mask_penggunaan = (penggunaan["Tanggal"] >= start_date) & (penggunaan["Tanggal"] <= end_date)
+
+        spk_filtered = df.loc[mask_spk].copy()
         penggunaan_filtered = penggunaan.loc[mask_penggunaan].copy()
 
-        # --- Perhitungan Total Kerusakan/Perbaikan ---
+        # Pastikan kolom Total Kerusakan numerik
+        spk_filtered["Total Kerusakan"] = pd.to_numeric(spk_filtered["Total Kerusakan"], errors="coerce").fillna(0)
+
+        # --- Hitung Total Kerusakan / Perbaikan ---
         damage_dict = {}
         for fk in forklifts:
-            # Gunakan logika 'in' untuk mengatasi data seperti "FK 16 (39987)"
             mask_fk = spk_filtered["Area / Mesin"].astype(str).str.contains(fk)
             total_damage = spk_filtered.loc[mask_fk, "Total Kerusakan"].sum()
             damage_dict[fk] = total_damage
 
         damage_df = pd.DataFrame(list(damage_dict.items()), columns=["No FK", "Total Kerusakan/Perbaikan"])
 
-        # --- Perhitungan Total Pemakaian ---
-        # Hanya kolom selain Tanggal
+        # --- Hitung Total Pemakaian ---
         penggunaan_cols = [col for col in penggunaan_filtered.columns if col != "Tanggal"]
-        
-        # Ubah nilai non-numerik menjadi NaN, kemudian diisi 0
         for col in penggunaan_cols:
             penggunaan_filtered[col] = pd.to_numeric(penggunaan_filtered[col], errors="coerce").fillna(0)
-        
+
         usage_dict = {}
         for fk in forklifts:
-            # Cari kolom yang diawali dengan nama forklift (misal "FK 14 - Shift 1", "FK 14 - Shift 2", dsb.)
             fk_cols = [col for col in penggunaan_cols if col.startswith(fk)]
             total_usage = penggunaan_filtered[fk_cols].sum().sum() if fk_cols else 0
             usage_dict[fk] = total_usage
 
         usage_df = pd.DataFrame(list(usage_dict.items()), columns=["No FK", "Total Pemakaian"])
 
-        # --- Gabungkan Data Penggunaan dan Kerusakan ---
+        # --- Gabung hasil ---
         result = pd.merge(usage_df, damage_df, on="No FK", how="outer").fillna(0)
-        
-        # Hitung Tingkat Kerusakan: rasio kerusakan terhadap pemakaian
+
+        # Pastikan dua kolom ini bertipe numerik
+        result["Total Kerusakan/Perbaikan"] = pd.to_numeric(result["Total Kerusakan/Perbaikan"], errors="coerce").fillna(0)
+        result["Total Pemakaian"] = pd.to_numeric(result["Total Pemakaian"], errors="coerce").fillna(0)
+
         result["Tingkat Kerusakan"] = result.apply(
             lambda row: row["Total Kerusakan/Perbaikan"] / row["Total Pemakaian"] if row["Total Pemakaian"] != 0 else 0,
             axis=1
         )
-        
-        
 
-        # --- Visualisasi Tingkat Kerusakan ---
+        # --- Visualisasi ---
         st.subheader("Visualisasi Tingkat Kerusakan")
         chart = alt.Chart(result).mark_bar().encode(
             x=alt.X("No FK:N", title="Nomor Forklift"),
@@ -741,16 +775,18 @@ if menu == "Tingkat Kerusakan":
             title="Tingkat Kerusakan per Forklift"
         )
         st.altair_chart(chart, use_container_width=True)
-        
-        # Tampilkan tabel hasil analisis
+
+        # --- Tabel hasil ---
         st.subheader("Hasil Analisis")
-        st.dataframe(result)
+        st.dataframe(result, use_container_width=True)
+
+
+
         
         
 if menu == "Monitoring Forklift":
     # Baca file HM_Harian.xlsx
-    df_harian = pd.read_excel("HM_Harian.xlsx")
-    all_columns = df_harian.columns.tolist()
+    all_columns = df_hmharian.columns.tolist()
 
     # Ekstrak daftar forklift berdasarkan awalan nama kolom (misal "FK 14" dari "FK 14 - Shift 1")
     forklifts = sorted(set(col.split(" - ")[0] for col in all_columns))
@@ -763,7 +799,7 @@ if menu == "Monitoring Forklift":
         # Untuk tiap kolom, konversi ke numerik dan ambil nilai maksimal (jika ada lebih dari 1 baris)
         max_values = []
         for col in fk_cols:
-            col_max = pd.to_numeric(df_harian[col], errors='coerce').max()
+            col_max = pd.to_numeric(df_hmharian[col], errors='coerce').max()
             max_values.append(col_max)
         
         # Bandingkan ketiga nilai tersebut dan ambil yang paling besar
@@ -773,11 +809,18 @@ if menu == "Monitoring Forklift":
         estimasi = overall_max + 21 if pd.notnull(overall_max) else None
         estimasi_dict[fk] = estimasi
 
-    # --- Langkah 2: Baca data_oli.xlsx dan tambahkan kolom Estimasi HM Hari Ini ---
-    df_oli = pd.read_excel("data_oli.xlsx")
+    # --- Langkah 2: Baca data_oli dan tambahkan kolom Estimasi HM Hari Ini ---
+    df_oli = read_sheet(DATA_OLI)
 
     # Mapping berdasarkan "No. FK" (diasumsikan di data_oli.xlsx formatnya sama, misal "FK 14")
     df_oli["Estimasi HM Hari Ini"] = df_oli["No. FK"].map(estimasi_dict)
+    
+    # Konversi ke numerik dan isi NaN dengan 0
+    df_oli["HM Terakhir Ganti Oli mesin"] = pd.to_numeric(df_oli["HM Terakhir Ganti Oli mesin"], errors='coerce').fillna(0)
+    df_oli["HM Terakhir Ganti Oli Hidrolik"] = pd.to_numeric(df_oli["HM Terakhir Ganti Oli Hidrolik"], errors='coerce').fillna(0)
+    df_oli["HM Terakhir Saat Ganti Oli Transmisi"] = pd.to_numeric(df_oli["HM Terakhir Saat Ganti Oli Transmisi"], errors='coerce').fillna(0)
+    df_oli["HM Terakhir Saat Ganti Oli Gardan"] = pd.to_numeric(df_oli["HM Terakhir Saat Ganti Oli Gardan"], errors='coerce').fillna(0)
+    df_oli["Estimasi HM Hari Ini"] = pd.to_numeric(df_oli["Estimasi HM Hari Ini"], errors='coerce').fillna(0)
 
     # --- Langkah 3: Menghitung kolom Sisa HM Ganti Oli ---
     df_oli["Sisa HM Ganti Oli mesin"] = df_oli["HM Terakhir Ganti Oli mesin"] + 250 - df_oli["Estimasi HM Hari Ini"]
@@ -846,17 +889,16 @@ if menu == "Monitoring Forklift":
         df_oli["Sisa HM Ganti Oli Transmisi"] = df_oli["HM Terakhir Saat Ganti Oli Transmisi"] + 2500 - df_oli["Estimasi HM Hari Ini"]
         df_oli["Sisa HM Ganti Oli Gardan"] = df_oli["HM Terakhir Saat Ganti Oli Gardan"] + 2500 - df_oli["Estimasi HM Hari Ini"]
 
+
         # Simpan data ke file Excel
-        df_oli.to_excel("data_oli.xlsx", index=False)
+        write_to_sheet(DATA_OLI, df_oli)
         st.success("Data berhasil disimpan ke data_oli.xlsx")
 if menu == "Tabel Kerusakan":
     st.title("Tabel Rekap Kerusakan Forklift")
 
-    # Baca file Excel
-    file_path = "data_SPK.xlsx"
+    
 
     try:
-        df = pd.read_excel(file_path)
 
         # Pastikan kolom tanggal adalah datetime
         df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
@@ -983,6 +1025,6 @@ if menu == "Tabel Kerusakan":
         st.altair_chart(chart, use_container_width=True)
 
     except FileNotFoundError:
-        st.error("File data_SPK.xlsx tidak ditemukan.")
+        st.error("File data_spk.xlsx tidak ditemukan.")
     except Exception as e:
         st.error(f"Terjadi kesalahan: {e}")
