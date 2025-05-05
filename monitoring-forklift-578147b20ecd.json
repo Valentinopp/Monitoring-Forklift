@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "monitoring-forklift",
+  "private_key_id": "578147b20ecd4b64920161491cfab8b7b748f635",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQChO1xJAiEuTX2b\nYeDXcOskBy05jFpyaRFf5A134QI/ZNgY/16ZtVFtVnv1tg4r8qNJUQ3By4c52KLA\n4Qi2BY+a81SVwoSeA++Oc+g/lyt9qlQMmBniwOhOEzS47ByRHYpc03GFjOejAwDg\nRE8hkOXJGicx8IMRPdU2B7POJPYXA3P2XIvFZZMrsi1MX6RMWs++Kycz1NP1DV6x\nna4RqI/i6+u97r0syRDbLjQqfCCW8mUlexL6jNKt0hMrFQPJmrtsdGdCzdUvB05P\nRGATVkCenawOXyJK71bPoIeWwxTOYKKxmFkRnqsw1KaEBRq5+Rt24U+4rAPU0PFM\nO+L2NiWzAgMBAAECggEAShs5Gxt9+cTHP2R5Dj0J7wjXahSPO/f78umkoR2MRWwK\nAU9bAWY8E3fFSRYRJHUFRT0aiCEOufFPOT0Vnmgm7c766Uy7XM+tS3oN3TCT3lIs\nCI/ekgEdpUkhmf94T+DWiDzteDdf/mZygCIVhvWNEGZTbpo/++xCM+/NXqpRbBi/\nz9V2FWtpyJtkl/NOhZNrX8BXZtyUmc10vEPdBfpwjkjRa5M59BU9s5xn2zXG5hOd\nO8uP9xXyQAb7EgwWWQYWwrDOgk8mMyutGcEddiBuspYqGo2jGuYtfWSSi+an6hwC\n7zrciKRJcJgI76aVntpRXPD38Iiq8DPR93j6VfN4FQKBgQDiwjZjCp+iucBdFIOs\nK2UzMU7FfSdVzaw1J2RzPDKr6Z5Q5y23VvrsW8PlFynw9CRLhnmD4yr2KXkVgsDW\nmrZCvDdjeXC1Pavsfbu+Rgdf6Lub0OVDhVHzqynsvb/visSPlLSHDVMRnTDl8FMC\nM0UlfcvoZ8ZOjrMXNZxLi+TDDwKBgQC2BfgseFF0jUh+UXdq/jRry+BafxwMK9Ln\nQvDBWxJxibIpw/iEw4tWL6v082URsTkPq4SPErVyYuUh52mtzgRhoi5YLmX9IBz8\nsrhYhCg0zM4XDMkM9APRZhkCjW6noX6ikVO/1XyDWXztDqQVYMLoeIAxsrhJk3tQ\nbNEmC08jHQKBgQCI8noePqBCiqRekrEjHeI0lKbaJsfGzjwerffAkK6ZnLH8cmHt\nxB4u+QzKIr81wnzZEBH7UQr1N/7kut7zvOQuUbWx4fnru59FaHomY+y4Q7pqVDLi\nIHZqDwl27PIqHUiw3kJY/fcZQDHz7Lx1K7mq9tpbNbFSaGRItBv8lDRIiQKBgHc2\nTaWCX4bACVyBqn5uYpK/Af8DBLGL+iLwGpHoPZoSnpbv/FGnaBhYPHy+89C0izSS\nFs1FaYSy9HJSB0qHhSMUftnN+YnggFuYCVgfpd1+zPMXso1DO0TnYzXivzgWcsOx\n/nHDNjsoXsM7NYeyybRLR1pFPKEjcD3qJsiN25SZAoGAOtSPhVsF3qYfksrBDiND\nCjBX/krHZOcyGzMHms+0lFOi1NWqCbFIJ/c6w8wDVtbwUoCW59Y2jRYxMAYVd1vU\nGcCFEW4YhHyzpiFif8pGeJp5BBJeWPem9/3R7fgCTS4Y53vDprnB2lxveCAUD9fs\nTjQknN9OqVDWvrSDI9LNtk0=\n-----END PRIVATE KEY-----\n",
+  "client_email": "forklift-uploader@monitoring-forklift.iam.gserviceaccount.com",
+  "client_id": "116846493561083499975",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/forklift-uploader%40monitoring-forklift.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
