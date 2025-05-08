@@ -43,109 +43,107 @@ def check_login():
 if check_login():
 
     # Ganti dengan ID spreadsheet dan nama sheet Anda
-    SPREADSHEET_ID = '1yVTIWSOBz22XaTkF6iYD90HuYXJvdzqiGaEcW-K6l6g'
-    DATA_SPK = "data_spk"
-    HM_HARIAN = "HM_Harian"
-    DATA_OLI = "data_oli"
-    PENGGUNAAN_FK = "penggunaan_forklift"
-    
-    # File credentials.json dari Google Cloud Console (gunakan service account)
-    SERVICE_ACCOUNT_FILE = 'monitoring-forklift-578147b20ecd.json'
-    
-    # Scope untuk Google Sheets API
-    SCOPES = [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive'
-    ]
-    
-    
-    # Autentikasi dan bangun service (letakkan di cache juga untuk efisiensi)
-    @st.cache_resource
-    def get_service():
-        try:
-            creds_info = json.loads(os.environ["GCP_SERVICE_ACCOUNT"])
-            creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-            return build('sheets', 'v4', credentials=creds)
-        except Exception as e:
-            st.error(f"Gagal terhubung ke Google Sheets: {e}")
-            st.stop()
-    
-    service = get_service()
-    
-    # --- Membaca Data dari Sheet (dengan cache) ---
-    @st.cache_data(ttl=28800, show_spinner=False)  # cache selama 1 jam, bisa diubah sesuai kebutuhan
-    def read_sheet(SHEET_NAME):
-        try:
-            result = service.spreadsheets().values().get(
-                spreadsheetId=SPREADSHEET_ID,
-                range=f"{SHEET_NAME}"
-            ).execute()
-            values = result.get('values', [])
-            df = pd.DataFrame(values[1:], columns=values[0]) if values else pd.DataFrame()
-            return df
-        except Exception as e:
-            st.error(f"Tidak dapat membaca data dari sheet '{SHEET_NAME}': {e}")
-            return pd.DataFrame()  # Kembalikan dataframe kosong sebagai fallback
-    
-    # --- Menulis Data ke Sheet ---
-    def write_to_sheet(SHEET_NAME, dataframe):
-        try:
-            service.spreadsheets().values().clear(
-                spreadsheetId=SPREADSHEET_ID,
-                range=SHEET_NAME
-            ).execute()
-            
-            values = [dataframe.columns.tolist()] + dataframe.values.tolist()
-            body = {'values': values}
-            service.spreadsheets().values().update(
-                spreadsheetId=SPREADSHEET_ID,
-                range=SHEET_NAME,
-                valueInputOption="RAW",
-                body=body
-            ).execute()
-            
-            read_sheet.clear()
-        except Exception as e:
-            st.error(f"Gagal menyimpan data ke sheet '{SHEET_NAME}': {e}")
-    
-    def hitung_kerusakan(teks):
-        if not teks or teks == "":
-            return 0
-        if pd.isna(teks) or teks == '' or teks is None:
-            return 0
+SPREADSHEET_ID = '1yVTIWSOBz22XaTkF6iYD90HuYXJvdzqiGaEcW-K6l6g'
+DATA_SPK = "data_spk"
+HM_HARIAN = "HM_Harian"
+DATA_OLI = "data_oli"
+PENGGUNAAN_FK = "penggunaan_forklift"
+
+# Scope untuk Google Sheets API
+SCOPES = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive'
+]
+
+# Ambil kredensial dari Streamlit Secrets
+creds_info = st.secrets["google_service_account"]
+
+# Autentikasi dan bangun service
+@st.cache_resource
+def get_service():
+    try:
+        creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+        return build('sheets', 'v4', credentials=creds)
+    except Exception as e:
+        st.error(f"Gagal terhubung ke Google Sheets: {e}")
+        st.stop()
+
+service = get_service()
+
+# --- Membaca Data dari Sheet (dengan cache) ---
+@st.cache_data(ttl=28800, show_spinner=False)  # cache selama 1 jam, bisa diubah sesuai kebutuhan
+def read_sheet(SHEET_NAME):
+    try:
+        result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"{SHEET_NAME}"
+        ).execute()
+        values = result.get('values', [])
+        df = pd.DataFrame(values[1:], columns=values[0]) if values else pd.DataFrame()
+        return df
+    except Exception as e:
+        st.error(f"Tidak dapat membaca data dari sheet '{SHEET_NAME}': {e}")
+        return pd.DataFrame()  # Kembalikan dataframe kosong sebagai fallback
+
+# --- Menulis Data ke Sheet ---
+def write_to_sheet(SHEET_NAME, dataframe):
+    try:
+        service.spreadsheets().values().clear(
+            spreadsheetId=SPREADSHEET_ID,
+            range=SHEET_NAME
+        ).execute()
         
-        # Hitung jumlah item berdasarkan koma
-        jumlah_kerusakan = teks.count(',') + 1
+        values = [dataframe.columns.tolist()] + dataframe.values.tolist()
+        body = {'values': values}
+        service.spreadsheets().values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=SHEET_NAME,
+            valueInputOption="RAW",
+            body=body
+        ).execute()
+
+        read_sheet.clear()
+    except Exception as e:
+        st.error(f"Gagal menyimpan data ke sheet '{SHEET_NAME}': {e}")
+
+def hitung_kerusakan(teks):
+    if not teks or teks == "":
+        return 0
+    if pd.isna(teks) or teks == '' or teks is None:
+        return 0
     
-        # Jika mengandung "cek rutin", kurangi 1
-        if 'cek rutin' in teks.lower():
-            jumlah_kerusakan -= 1
-    
-        return jumlah_kerusakan
+    # Hitung jumlah item berdasarkan koma
+    jumlah_kerusakan = teks.count(',') + 1
 
-    def reset_state():
-        for key in ["show_form", "editData", "hapusData", "download"]:
-            st.session_state[key] = False
+    # Jika mengandung "cek rutin", kurangi 1
+    if 'cek rutin' in teks.lower():
+        jumlah_kerusakan -= 1
 
-    def toggle_show_form():
-        reset_state()
-        st.session_state.show_form = True
+    return jumlah_kerusakan
 
-    def toggle_download():
-        reset_state()
-        st.session_state.download = True
+def reset_state():
+    for key in ["show_form", "editData", "hapusData", "download"]:
+        st.session_state[key] = False
 
-    def toggle_edit():
-        reset_state()
-        st.session_state.editData = True
+def toggle_show_form():
+    reset_state()
+    st.session_state.show_form = True
 
-    def toggle_hapus():
-        reset_state()
-        st.session_state.hapusData = True
+def toggle_download():
+    reset_state()
+    st.session_state.download = True
 
-    
-    df =  read_sheet(DATA_SPK)
-    df_hmharian = read_sheet(HM_HARIAN)
+def toggle_edit():
+    reset_state()
+    st.session_state.editData = True
+
+def toggle_hapus():
+    reset_state()
+    st.session_state.hapusData = True
+
+# Membaca data dari Google Sheets
+df =  read_sheet(DATA_SPK)
+df_hmharian = read_sheet(HM_HARIAN)
     
     
     
