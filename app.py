@@ -15,8 +15,12 @@ def login():
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
 
+    # Mengambil username dan password dari Streamlit Secrets
+    secret_username = st.secrets["APP_USERNAME"]
+    secret_password = st.secrets["APP_PASSWORD"]
+
     if st.button("Login", use_container_width=True):
-        if username == os.environ.get("APP_USERNAME") and password == os.environ.get("APP_PASSWORD"):
+        if username == secret_username and password == secret_password:
             st.session_state["logged_in"] = True
             st.session_state["login_time"] = datetime.now()
             st.rerun()
