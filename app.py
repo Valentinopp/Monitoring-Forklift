@@ -841,111 +841,136 @@ if check_login():
         # Baca file HM_Harian.xlsx
         all_columns = df_hmharian.columns.tolist()
     
-        # Ekstrak daftar forklift berdasarkan awalan nama kolom (misal "FK 14" dari "FK 14 - Shift 1")
-        forklifts = sorted(set(col.split(" - ")[0] for col in all_columns))
+        forklifts = sorted({
+            col.split(" - ")[0]
+            for col in all_columns
+            if " - " in col
+        })
+    
+        # Buat dict estimasi
         estimasi_dict = {}
     
         for fk in forklifts:
-            # Cari kolom-kolom yang sesuai dengan forklift, misalnya: "FK 14 - Shift 1", "FK 14 - Shift 2", "FK 14 - Shift 3"
-            fk_cols = [col for col in all_columns if col.startswith(fk)]
-            
-            # Untuk tiap kolom, konversi ke numerik dan ambil nilai maksimal (jika ada lebih dari 1 baris)
-            max_values = []
-            for col in fk_cols:
-                col_max = pd.to_numeric(df_hmharian[col], errors='coerce').max()
-                max_values.append(col_max)
-            
-            # Bandingkan ketiga nilai tersebut dan ambil yang paling besar
-            overall_max = max(max_values)
-            
-            # Tambahkan 21 untuk mendapatkan estimasi HM harian
-            estimasi = overall_max + 21 if pd.notnull(overall_max) else None
-            estimasi_dict[fk] = estimasi
+            # Siapkan nama-nama kolom shift
+            shift_cols = [f"{fk} - Shift {i}" for i in (1, 2, 3)]
+            last_hm = None
+    
+            # Loop mundur dari baris paling bawah (tanggal paling akhir)  
+            for idx in reversed(df_hmharian.index):
+                row = df_hmharian.loc[idx]
+    
+                # Cek Shift 3 → Shift 2 → Shift 1
+                for shift in (3, 2, 1):
+                    col = f"{fk} - Shift {shift}"
+                    if col not in df_hmharian.columns:
+                        continue
+    
+                    # Coba konversi ke numerik
+                    val = row[col]
+                    num = pd.to_numeric(val, errors="coerce")
+    
+                    if pd.notnull(num):
+                        last_hm = num
+                        break  # keluar loop shift
+    
+                if last_hm is not None:
+                    break  # keluar loop tanggal
+    
+            # Jika ketemu nilai, tambahkan 21
+            estimasi_dict[fk] = (last_hm + 21) if last_hm is not None else None
     
         # --- Langkah 2: Baca data_oli dan tambahkan kolom Estimasi HM Hari Ini ---
         df_oli = read_sheet(DATA_OLI)
-    
-        # Mapping berdasarkan "No. FK" (diasumsikan di data_oli.xlsx formatnya sama, misal "FK 14")
         df_oli["Estimasi HM Hari Ini"] = df_oli["No. FK"].map(estimasi_dict)
-        
+    
         # Konversi ke numerik dan isi NaN dengan 0
-        df_oli["HM Terakhir Ganti Oli mesin"] = pd.to_numeric(df_oli["HM Terakhir Ganti Oli mesin"], errors='coerce').fillna(0)
-        df_oli["HM Terakhir Ganti Oli Hidrolik"] = pd.to_numeric(df_oli["HM Terakhir Ganti Oli Hidrolik"], errors='coerce').fillna(0)
-        df_oli["HM Terakhir Saat Ganti Oli Transmisi"] = pd.to_numeric(df_oli["HM Terakhir Saat Ganti Oli Transmisi"], errors='coerce').fillna(0)
-        df_oli["HM Terakhir Saat Ganti Oli Gardan"] = pd.to_numeric(df_oli["HM Terakhir Saat Ganti Oli Gardan"], errors='coerce').fillna(0)
-        df_oli["Estimasi HM Hari Ini"] = pd.to_numeric(df_oli["Estimasi HM Hari Ini"], errors='coerce').fillna(0)
+        for col in [
+            "HM Terakhir Ganti Oli mesin",
+            "HM Terakhir Ganti Oli Hidrolik",
+            "HM Terakhir Saat Ganti Oli Transmisi",
+            "HM Terakhir Saat Ganti Oli Gardan",
+            "Estimasi HM Hari Ini"
+        ]:
+            df_oli[col] = pd.to_numeric(df_oli[col], errors="coerce").fillna(0)
     
-        # --- Langkah 3: Menghitung kolom Sisa HM Ganti Oli ---
-        df_oli["Sisa HM Ganti Oli mesin"] = df_oli["HM Terakhir Ganti Oli mesin"] + 250 - df_oli["Estimasi HM Hari Ini"]
-        df_oli["Sisa HM Ganti Oli Hidrolik"] = df_oli["HM Terakhir Ganti Oli Hidrolik"] + 3000 - df_oli["Estimasi HM Hari Ini"]
-        df_oli["Sisa HM Ganti Oli Transmisi"] = df_oli["HM Terakhir Saat Ganti Oli Transmisi"] + 2500 - df_oli["Estimasi HM Hari Ini"]
-        df_oli["Sisa HM Ganti Oli Gardan"] = df_oli["HM Terakhir Saat Ganti Oli Gardan"] + 2500 - df_oli["Estimasi HM Hari Ini"]
+        # --- Langkah 3: Menghitung Sisa HM Ganti Oli ---
+        df_oli["Sisa HM Ganti Oli mesin"]      = df_oli["HM Terakhir Ganti Oli mesin"]      + 250  - df_oli["Estimasi HM Hari Ini"]
+        df_oli["Sisa HM Ganti Oli Hidrolik"]   = df_oli["HM Terakhir Ganti Oli Hidrolik"]   + 3000 - df_oli["Estimasi HM Hari Ini"]
+        df_oli["Sisa HM Ganti Oli Transmisi"]  = df_oli["HM Terakhir Saat Ganti Oli Transmisi"] + 2500 - df_oli["Estimasi HM Hari Ini"]
+        df_oli["Sisa HM Ganti Oli Gardan"]     = df_oli["HM Terakhir Saat Ganti Oli Gardan"]    + 2500 - df_oli["Estimasi HM Hari Ini"]
     
-        # --- Langkah 4: Menampilkan Tabel ---
-    
-        # Tabel non-editable: tampilkan No. FK, Status, Estimasi HM Hari Ini, dan Sisa HM Ganti Oli
+        # --- Langkah 4: Tampilkan Tabel Non-editable ---
         non_editable_columns = [
             "No. FK", "Status", "Estimasi HM Hari Ini",
             "Sisa HM Ganti Oli mesin", "Sisa HM Ganti Oli Hidrolik",
             "Sisa HM Ganti Oli Transmisi", "Sisa HM Ganti Oli Gardan"
         ]
     
-        # Fungsi untuk memberi background merah jika nilai numerik <= 63, dan kuning jika <= 147
         def highlight_red(val):
             try:
-                if float(val) <= 63:
+                v = float(val)
+                if v <= 63:
                     return "background-color: red"
-                elif float(val) <= 147:
+                elif v <= 147:
                     return "background-color: yellow"
             except:
-                return ""
+                pass
             return ""
     
-        # Terapkan format angka hanya pada kolom numerik dengan 1 digit di belakang koma
-        styled_df = df_oli[non_editable_columns].style.format({
-            "Estimasi HM Hari Ini": "{:.1f}",
-            "Sisa HM Ganti Oli mesin": "{:.1f}",
-            "Sisa HM Ganti Oli Hidrolik": "{:.1f}",
-            "Sisa HM Ganti Oli Transmisi": "{:.1f}",
-            "Sisa HM Ganti Oli Gardan": "{:.1f}",
-        }).applymap(highlight_red)
+        styled_df = (
+            df_oli[non_editable_columns]
+            .style
+            .format({
+                "Estimasi HM Hari Ini": "{:.0f}",
+                "Sisa HM Ganti Oli mesin": "{:.0f}",
+                "Sisa HM Ganti Oli Hidrolik": "{:.0f}",
+                "Sisa HM Ganti Oli Transmisi": "{:.0f}",
+                "Sisa HM Ganti Oli Gardan": "{:.0f}",
+            })
+            .applymap(highlight_red, subset=[
+                "Sisa HM Ganti Oli mesin",
+                "Sisa HM Ganti Oli Hidrolik",
+                "Sisa HM Ganti Oli Transmisi",
+                "Sisa HM Ganti Oli Gardan",
+            ])
+        )
     
         st.subheader("Tabel Estimasi HM dan Sisa HM Ganti Oli (Non-editable)")
         st.write(styled_df)
     
-        # st.dataframe(df_oli[non_editable_columns], use_container_width=True)
-    
-        # Tabel editable: untuk mengupdate nilai HM terakhir
+        # --- Langkah 5: Tabel Editable untuk Update HM Terakhir ---
         editable_columns = [
-            "No. FK", "Status", "HM Terakhir Ganti Oli mesin", "HM Terakhir Ganti Oli Hidrolik",
-            "HM Terakhir Saat Ganti Oli Transmisi", "HM Terakhir Saat Ganti Oli Gardan"
+            "No. FK", "Status",
+            "HM Terakhir Ganti Oli mesin",
+            "HM Terakhir Ganti Oli Hidrolik",
+            "HM Terakhir Saat Ganti Oli Transmisi",
+            "HM Terakhir Saat Ganti Oli Gardan"
         ]
         st.subheader("Update HM Terakhir Ganti Oli (Editable)")
         edited_df = st.data_editor(df_oli[editable_columns], num_rows="dynamic")
     
-        # Tombol simpan perubahan
         if st.button("Simpan Perubahan"):
-            # Pastikan 'No. FK' sebagai index untuk keduanya agar bisa di-merge/update dengan aman
-            edited_df_indexed = edited_df.set_index("No. FK")
-            df_oli.set_index("No. FK", inplace=True)
+            # Sinkronisasi index
+            edited_idx = edited_df.set_index("No. FK")
+            df_oli_idx = df_oli.set_index("No. FK")
     
-            # Update kolom numerik dan string, termasuk "Status"
-            for col in edited_df_indexed.columns:
-                df_oli[col].update(edited_df_indexed[col])
+            # Update nilai
+            for col in edited_idx.columns:
+                df_oli_idx[col].update(edited_idx[col])
     
-            # Reset index kembali agar bisa disimpan ke Excel
-            df_oli.reset_index(inplace=True)
+            df_oli = df_oli_idx.reset_index()
     
-            # Rehitung kolom Sisa HM Ganti Oli setelah update HM terakhir
-            df_oli["Sisa HM Ganti Oli mesin"] = df_oli["HM Terakhir Ganti Oli mesin"] + 250 - df_oli["Estimasi HM Hari Ini"]
-            df_oli["Sisa HM Ganti Oli Hidrolik"] = df_oli["HM Terakhir Ganti Oli Hidrolik"] + 3000 - df_oli["Estimasi HM Hari Ini"]
-            df_oli["Sisa HM Ganti Oli Transmisi"] = df_oli["HM Terakhir Saat Ganti Oli Transmisi"] + 2500 - df_oli["Estimasi HM Hari Ini"]
-            df_oli["Sisa HM Ganti Oli Gardan"] = df_oli["HM Terakhir Saat Ganti Oli Gardan"] + 2500 - df_oli["Estimasi HM Hari Ini"]
+            # Rehitung sisa HM
+            df_oli["Sisa HM Ganti Oli mesin"]      = df_oli["HM Terakhir Ganti Oli mesin"]      + 250  - df_oli["Estimasi HM Hari Ini"]
+            df_oli["Sisa HM Ganti Oli Hidrolik"]   = df_oli["HM Terakhir Ganti Oli Hidrolik"]   + 3000 - df_oli["Estimasi HM Hari Ini"]
+            df_oli["Sisa HM Ganti Oli Transmisi"]  = df_oli["HM Terakhir Saat Ganti Oli Transmisi"] + 2500 - df_oli["Estimasi HM Hari Ini"]
+            df_oli["Sisa HM Ganti Oli Gardan"]     = df_oli["HM Terakhir Saat Ganti Oli Gardan"]    + 2500 - df_oli["Estimasi HM Hari Ini"]
     
-    
-            # Simpan data ke file Excel
+            # Simpan kembali
             write_to_sheet(DATA_OLI, df_oli)
             st.success("Data berhasil disimpan")
+            st.rerun()
+            
     if menu == "Tabel Kerusakan":
         st.title("Tabel Rekap Kerusakan Forklift")
     
