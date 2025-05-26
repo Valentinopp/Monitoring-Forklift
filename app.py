@@ -59,13 +59,10 @@ if check_login():
         'https://www.googleapis.com/auth/drive'
     ]
     
-    # Ambil kredensial dari Streamlit Secrets
-    creds_info = st.secrets["google_service_account"]
-    
-    # Autentikasi dan bangun service
     @st.cache_resource
     def get_service():
         try:
+            creds_info = st.secrets["google_service_account"]  # pindahkan ke sini
             creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
             return build('sheets', 'v4', credentials=creds)
         except Exception as e:
@@ -73,6 +70,7 @@ if check_login():
             st.stop()
     
     service = get_service()
+
     
     # --- Membaca Data dari Sheet (dengan cache) ---
     @st.cache_data(ttl=28800, show_spinner=False)  # cache selama 1 jam, bisa diubah sesuai kebutuhan
