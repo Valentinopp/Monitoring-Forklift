@@ -18,6 +18,8 @@ if "menu" not in st.session_state:
 SPREADSHEET_ID = '1yVTIWSOBz22XaTkF6iYD90HuYXJvdzqiGaEcW-K6l6g'
 DATA_SPK = "data_spk"
 HM_HARIAN = "HM_Harian"
+DATA_OLI = "data_oli"
+PENGGUNAAN_FK = "penggunaan_forklift"
 
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
