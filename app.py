@@ -40,8 +40,10 @@ def login():
         if username == secret_username and password == secret_password:
             st.session_state["logged_in"] = True
             st.session_state["login_time"] = datetime.now()
+            st.rerun()  # <<--- ini yang penting
         else:
             st.error("Username atau password salah.")
+
 
 # --- Cek Login Status ---
 def check_login():
