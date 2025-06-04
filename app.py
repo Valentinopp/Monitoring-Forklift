@@ -155,22 +155,25 @@ def toggle_hapus():
 df = read_sheet(DATA_SPK)
 df_hmharian = read_sheet(HM_HARIAN)
 
-# --- Sidebar Menu ---
 st.markdown("""
     <style>
     [data-testid="stSidebar"] div.stButton > button {
         width: 100% !important;
         text-align: left !important;
         justify-content: flex-start !important;
-        display: block;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px;
         margin: 5px 0;
         border: none !important;
+        font-size: 16px;
     }
     [data-testid="stSidebar"] h3 {
         text-align: left !important;
     }
     </style>
 """, unsafe_allow_html=True)
+
 
 menu_items = [
     "SPK",
@@ -182,18 +185,44 @@ menu_items = [
     "Tabel Kerusakan"
 ]
 
-st.sidebar.markdown("### MENU")
-for item in menu_items:
-    if st.sidebar.button(item):
-        if 'menu' not in st.session_state:
-            st.session_state.menu = item
+icon_items = [
+    ":material/description:",
+    ":material/swap_horiz:",
+    ":material/data_usage:",
+    ":material/timer:",
+    ":material/broken_image:",
+    ":material/forklift:",
+    ":material/table:"
+]
 
+# Inisialisasi session_state.menu jika belum ada
+if 'menu' not in st.session_state:
+    st.session_state.menu = menu_items[0]  # default menu
+
+st.sidebar.markdown("### MENU")
+
+# Buat tombol untuk setiap menu
+for idx, item in enumerate(menu_items):
+    if st.sidebar.button(f"{icon_items[idx]} {item}"):
+        st.session_state.menu = item  # Simpan menu yang dipilih
+
+# Ambil nilai menu dari session state
 menu = st.session_state.menu
-    
+
+
     
 new_data = None
 
+
+
 if menu == "SPK":
+    
+    def reset_all_states():
+        st.session_state.show_form = False
+        st.session_state.editData = False
+        st.session_state.hapusData = False
+        st.session_state.download = False
+
     
     # Tampilkan seluruh isi tabel SPK
     st.header("Tabel Data SPK")
@@ -210,19 +239,56 @@ if menu == "SPK":
     # Tambah data
     if "show_form" not in st.session_state:
         st.session_state.show_form = False
+        
+    if "editData" not in st.session_state:
+        st.session_state.editData = False
+        
+    if "hapusData" not in st.session_state:
+        st.session_state.hapusData = False
+        
+    if "download" not in st.session_state:
+        st.session_state.download = False
+        
+    def toggle_state(key):
+        st.session_state[key] = not st.session_state.get(key, False)
+
+    def reset_all_states(except_key=None):
+        for key in ['show_form', 'editData', 'hapusData', 'download']:
+            if key != except_key:
+                st.session_state[key] = False
 
     with col1:
-        st.button("Tambah data", use_container_width=True, on_click=toggle_show_form)
+        if st.button("Tambah data", use_container_width=True, icon=":material/add:"):
+            if st.session_state.get('show_form', False):
+                st.session_state['show_form'] = False
+            else:
+                reset_all_states('show_form')
+                st.session_state['show_form'] = True
 
     with col2:
-        st.button("Edit data", use_container_width=True, on_click=toggle_edit)
-
+        if st.button("Edit data", use_container_width=True, icon=":material/edit:"):
+            if st.session_state.get('editData', False):
+                st.session_state['editData'] = False
+            else:
+                reset_all_states('editData')
+                st.session_state['editData'] = True
 
     with col3:
-        st.button("Hapus data", use_container_width=True, on_click=toggle_hapus)
-    
+        if st.button("Hapus data", use_container_width=True, icon=":material/remove:"):
+            if st.session_state.get('hapusData', False):
+                st.session_state['hapusData'] = False
+            else:
+                reset_all_states('hapusData')
+                st.session_state['hapusData'] = True
+
     with col4:
-        st.button("Download data", use_container_width=True, on_click=toggle_download)
+        if st.button("Download data", use_container_width=True, icon=":material/download:"):
+            if st.session_state.get('download', False):
+                st.session_state['download'] = False
+            else:
+                reset_all_states('download')
+                st.session_state['download'] = True
+
 
     
     if st.session_state.get("show_form", False):
@@ -244,7 +310,7 @@ if menu == "SPK":
                 masuk_bengkel_input = st.text_input("Masuk Bengkel (HH:MM)", value="")
                 keluar_bengkel_input = st.text_input("Keluar Bengkel (HH:MM)", value="")
 
-            submit = st.form_submit_button("Simpan Data")
+            submit = st.form_submit_button("Simpan Data", icon=":material/save:", use_container_width=True)
             
                 
             if submit:
@@ -368,7 +434,7 @@ if menu == "SPK":
                             )
 
 
-                    submit_edit = st.form_submit_button("Update Data")
+                    submit_edit = st.form_submit_button("Update Data", icon=":material/update:", use_container_width=True)
 
                     if submit_edit:
                         try:
@@ -445,7 +511,7 @@ if menu == "SPK":
                     konfirmasi_hapus = st.checkbox("Saya yakin ingin menghapus data ini")
 
                     if konfirmasi_hapus:
-                        if st.button("Hapus Data SPK Sekarang"):
+                        if st.button("Hapus Data SPK Sekarang", icon=":material/delete:", use_container_width=True):
                             df = df[df["Nomor SPK"] != hapus_nomor_spk]
                             write_to_sheet(DATA_SPK, df)
                             st.success("Data SPK berhasil dihapus.")
@@ -487,7 +553,9 @@ if menu == "SPK":
                     label="Download",
                     data=buffer,
                     file_name=f"data_{start_date}_to_{end_date}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    icon=":material/download:",
+                    use_container_width=True
                 )
             else:
                 st.info("Tidak ada data pada rentang tanggal tersebut.")
@@ -558,7 +626,7 @@ if menu == "HM 3 Shift":
         "Tanggal": st.column_config.Column("Tanggal", pinned=True)})
 
     # Tombol simpan
-    if st.button("Simpan Data"):
+    if st.button("Simpan Data", icon=":material/save:", use_container_width=True):
         df_old_filtered = df_hmharian[~df_hmharian['Tanggal'].isin(df_input['Tanggal'])]
         df_final = pd.concat([df_old_filtered, df_edited], ignore_index=True)
         df_final = df_final.sort_values(by='Tanggal')
@@ -942,7 +1010,7 @@ if menu == "Monitoring Forklift":
     st.subheader("Update HM Terakhir Ganti Oli (Editable)")
     edited_df = st.data_editor(df_oli[editable_columns], num_rows="dynamic")
 
-    if st.button("Simpan Perubahan"):
+    if st.button("Simpan Perubahan", icon=":material/save:", use_container_width=True):
         # Sinkronisasi index
         edited_idx = edited_df.set_index("No. FK")
         df_oli_idx = df_oli.set_index("No. FK")
