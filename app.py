@@ -191,8 +191,6 @@ for item in menu_items:
 menu = st.session_state.menu
     
     
-    
-    
 new_data = None
 
 if menu == "SPK":
@@ -226,8 +224,6 @@ if menu == "SPK":
     with col4:
         st.button("Download data", use_container_width=True, on_click=toggle_download)
 
-
-            
     
     if st.session_state.get("show_form", False):
         st.write("#### Form Data SPK")
@@ -376,14 +372,15 @@ if menu == "SPK":
 
                     if submit_edit:
                         try:
-                            mulai_pengerjaan_new = datetime.strptime(mulai_pengerjaan_edit.strip(), "%H:%M").time()
+                            mulai_pengerjaan_new = datetime.strptime(mulai_pengerjaan_edit.strip(), "%H:%M").strftime("%H:%M")
                         except:
-                            mulai_pengerjaan_new = None
-
+                            mulai_pengerjaan_new = ""
+                        
                         try:
-                            selesai_pengerjaan_new = datetime.strptime(selesai_pengerjaan_edit.strip(), "%H:%M").time()
+                            selesai_pengerjaan_new = datetime.strptime(selesai_pengerjaan_edit.strip(), "%H:%M").strftime("%H:%M")
                         except:
-                            selesai_pengerjaan_new = None
+                            selesai_pengerjaan_new = ""
+
 
                         idx = matched_data.index[0]
                         df.loc[idx, "Nomor SPK"] = nomor_edit
