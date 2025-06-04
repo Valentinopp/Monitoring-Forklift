@@ -96,6 +96,10 @@ def read_sheet(SHEET_NAME):
 # --- Fungsi Tulis Sheet ---
 def write_to_sheet(SHEET_NAME, dataframe):
     try:
+        if dataframe.empty:
+            st.error("Data kosong, sheet tidak diupdate.")
+            return
+
         service.spreadsheets().values().clear(
             spreadsheetId=SPREADSHEET_ID,
             range=SHEET_NAME
@@ -110,9 +114,10 @@ def write_to_sheet(SHEET_NAME, dataframe):
             body=body
         ).execute()
 
-        read_sheet.clear()  # clear cache-nya biar update
+        st.cache_data.clear()
     except Exception as e:
         st.error(f"Gagal menyimpan data ke sheet '{SHEET_NAME}': {e}")
+
 
 # --- Utility Tambahan ---
 def hitung_kerusakan(teks):
@@ -306,6 +311,8 @@ if menu == "SPK":
 
         search_spk = st.text_input("Cari berdasarkan Nomor SPK (untuk Edit)", key="search_spk")
         edit_mode = False
+
+        df = read_sheet(DATA_SPK)
 
         if search_spk:
             matched_data = df[df["Nomor SPK"] == search_spk]
