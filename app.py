@@ -127,7 +127,8 @@ def hitung_kerusakan(teks):
 
 def reset_state():
     for key in ["show_form", "editData", "hapusData", "download"]:
-        st.session_state[key] = False
+        if key not in st.session_state:
+            st.session_state[key] = False
 
 def toggle_show_form():
     reset_state()
@@ -179,7 +180,8 @@ menu_items = [
 st.sidebar.markdown("### MENU")
 for item in menu_items:
     if st.sidebar.button(item):
-        st.session_state.menu = item
+        if 'menu' not in st.session_state:
+            st.session_state.menu = item
 
 menu = st.session_state.menu
     
@@ -189,7 +191,6 @@ menu = st.session_state.menu
 new_data = None
 
 if menu == "SPK":
-    st.session_state.shift3 = False
     
     # Tampilkan seluruh isi tabel SPK
     st.header("Tabel Data SPK")
