@@ -1071,7 +1071,7 @@ if menu == "Tabel Kerusakan":
             "Cek rutin": "cek rutin",
             "Ganti oli mesin": "ganti oli mesin",
             "Kontrol valve rembes": "kontrol valve rembes",
-            "Lift turun sendiri": "lift turun sendiei",
+            "Lift turun sendiri": "lift turun sendiri",
             "Lampu utama mati": "lampu utama",
             "Ban aus/pecah/oleng": "ban",
             "Dinamo / baut dinamo bermasalah": "dinamo",
