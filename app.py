@@ -1087,7 +1087,7 @@ if menu == "Tabel Kerusakan":
             "Suara mesin kasar": "mesin kasar",
             "Seal stick rembes": "seal stick",
             "Accu": "accu",
-            "Persneling / selang perseneling": "persneling",
+            "Persneling / selang perseneling": "perseneling",
             "Suara transmisi kasar": "transmisi kasar",
             "Kampas kopling": "kampas kopling",
             "Baut pangkon / pangkon": "pangkon",
