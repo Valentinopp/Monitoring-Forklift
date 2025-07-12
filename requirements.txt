@@ -3,5 +3,6 @@ pandas==2.2.3
 numpy==2.2.5
 altair==5.5.0
 google-api-python-client==2.166.0
+pymongo
 openpyxl
 protobuf<6
