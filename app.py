@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import altair as alt
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
 
 # --- Inisialisasi session_state default ---
 if "logged_in" not in st.session_state:
