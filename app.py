@@ -14,17 +14,15 @@ if "login_time" not in st.session_state:
 if "menu" not in st.session_state:
     st.session_state["menu"] = "SPK"
 
-# --- Konfigurasi Google Sheets ---
-SPREADSHEET_ID = '1yVTIWSOBz22XaTkF6iYD90HuYXJvdzqiGaEcW-K6l6g'
-DATA_SPK = "data_spk"
-HM_HARIAN = "HM_Harian"
-DATA_OLI = "data_oli"
-PENGGUNAAN_FK = "penggunaan_forklift"
+uri = st.secrets["mongodb"]["uri"]
+client = MongoClient(uri, server_api=ServerApi('1'))
+db = client["spk"]
 
-SCOPES = [
-    'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/drive'
-]
+# Definisikan collection dari database spk
+DATA_SPK = "data_spk"
+HM_HARIAN = "hm_harian"
+DATA_OLI = "data_oli"
+PENGGUNAAN_FK = "penggunaan_fk"
 
 # --- Fungsi Login ---
 def login():
@@ -65,58 +63,41 @@ def check_login():
 if not check_login():
     st.stop()
 
-# --- Fungsi Service Google Sheets ---
-@st.cache_resource
-def get_service():
-    try:
-        creds_info = st.secrets["google_service_account"]
-        creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-        return build('sheets', 'v4', credentials=creds)
-    except Exception as e:
-        st.error(f"Gagal terhubung ke Google Sheets: {e}")
-        st.stop()
-
-service = get_service()
-
-# --- Fungsi Baca Sheet ---
 @st.cache_data(ttl=28800)
-def read_sheet(SHEET_NAME):
+def read_db(collection_name):
     try:
-        result = service.spreadsheets().values().get(
-            spreadsheetId=SPREADSHEET_ID,
-            range=f"{SHEET_NAME}"
-        ).execute()
-        values = result.get('values', [])
-        df = pd.DataFrame(values[1:], columns=values[0]) if values else pd.DataFrame()
+        collection = db[collection_name]
+        data = list(collection.find())
+        if not data:
+            return pd.DataFrame()
+        df = pd.DataFrame(data)
+        if '_id' in df.columns:
+            df = df.drop(columns=['_id'])  # drop kolom _id karena tidak dibutuhkan
         return df
     except Exception as e:
-        st.error(f"Tidak dapat membaca data dari sheet '{SHEET_NAME}': {e}")
+        st.error(f"Tidak dapat membaca data dari collection '{collection_name}': {e}")
         return pd.DataFrame()
 
-# --- Fungsi Tulis Sheet ---
-def write_to_sheet(SHEET_NAME, dataframe):
+
+def save_db(collection_name, dataframe):
     try:
         if dataframe.empty:
-            st.error("Data kosong, sheet tidak diupdate.")
+            st.error("Data kosong, collection tidak diupdate.")
             return
 
-        service.spreadsheets().values().clear(
-            spreadsheetId=SPREADSHEET_ID,
-            range=SHEET_NAME
-        ).execute()
-        
-        values = [dataframe.columns.tolist()] + dataframe.values.tolist()
-        body = {'values': values}
-        service.spreadsheets().values().update(
-            spreadsheetId=SPREADSHEET_ID,
-            range=SHEET_NAME,
-            valueInputOption="RAW",
-            body=body
-        ).execute()
+        collection = db[collection_name]
+        collection.delete_many({})  # hapus semua data lama
 
-        st.cache_data.clear()
+        # Ubah NaN ke None biar aman disimpan ke MongoDB
+        dataframe = dataframe.replace({pd.NA: None, np.nan: None})
+
+        data = dataframe.to_dict(orient='records')
+        collection.insert_many(data)
+
+        st.cache_data.clear()  # clear cache read_collection
+        st.success(f"Data berhasil disimpan ke collection '{collection_name}'.")
     except Exception as e:
-        st.error(f"Gagal menyimpan data ke sheet '{SHEET_NAME}': {e}")
+        st.error(f"Gagal menyimpan data ke collection '{collection_name}': {e}")
 
 
 # --- Utility Tambahan ---
@@ -152,8 +133,8 @@ def toggle_hapus():
     st.session_state.hapusData = True
 
 # --- Baca Data ---
-df = read_sheet(DATA_SPK)
-df_hmharian = read_sheet(HM_HARIAN)
+df = read_db(DATA_SPK)
+df_hmharian = read_db(HM_HARIAN)
 
 st.markdown("""
     <style>
@@ -176,6 +157,7 @@ st.markdown("""
 
 
 menu_items = [
+    "Dashboard",
     "SPK",
     "HM 3 Shift",
     "Pemakaian Harian",
@@ -186,6 +168,7 @@ menu_items = [
 ]
 
 icon_items = [
+    ":material/dashboard:",
     ":material/description:",
     ":material/swap_horiz:",
     ":material/data_usage:",
@@ -199,7 +182,7 @@ icon_items = [
 if 'menu' not in st.session_state:
     st.session_state.menu = menu_items[0]  # default menu
 
-st.sidebar.markdown("### MENU")
+st.sidebar.markdown(f"### MENU {st.session_state.menu}")
 
 # Buat tombol untuk setiap menu
 for idx, item in enumerate(menu_items):
@@ -208,10 +191,232 @@ for idx, item in enumerate(menu_items):
 
 # Ambil nilai menu dari session state
 menu = st.session_state.menu
+new_data = None
+
+if menu == "Dashboard":
+   # --- Summary Metrik Panel dengan Centered Value (tanpa Total Forklift) ---
+    st.header("Ringkasan Dashboard")
+
+    # Total forklift perlu ganti oli (yang sisa HM ≤ 147)
+    df_oli = read_db(DATA_OLI)
+    for col in [
+        "Sisa HM Ganti Oli mesin",
+        "Sisa HM Ganti Oli Hidrolik",
+        "Sisa HM Ganti Oli Transmisi",
+        "Sisa HM Ganti Oli Gardan"
+    ]:
+        if col not in df_oli.columns:
+            df_oli[col] = 0
+    perlu_ganti_oli = df_oli[
+        (df_oli["Sisa HM Ganti Oli mesin"] <= 147) |
+        (df_oli["Sisa HM Ganti Oli Hidrolik"] <= 147) |
+        (df_oli["Sisa HM Ganti Oli Transmisi"] <= 147) |
+        (df_oli["Sisa HM Ganti Oli Gardan"] <= 147)
+    ].shape[0]
+
+    # Total SPK bulan ini
+    df_spk = read_db(DATA_SPK)
+    df_spk["Tanggal"] = pd.to_datetime(df_spk["Tanggal"], errors='coerce')
+    spk_bulan_ini = df_spk[df_spk["Tanggal"].dt.month == datetime.now().month].shape[0]
+
+    # Total kerusakan bulan ini
+    total_kerusakan_bulan_ini = df_spk[
+        (df_spk["Tanggal"].dt.month == datetime.now().month) &
+        (df_spk["Jenis Kerusakan"].notnull()) &
+        (df_spk["Jenis Kerusakan"].str.strip() != "")
+    ].shape[0]
+
+    # Tampilkan metrik custom rata tengah (3 kolom)
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown(f"""
+            <div style="text-align:center">
+                <h5>Perlu Ganti Oli</h5>
+                <h3 style="margin-top: -10px; font-size:50px;">{perlu_ganti_oli}</h3>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(f"""
+            <div style="text-align:center">
+                <h5>SPK Bulan Ini</h5>
+                <h3 style="margin-top: -10px; font-size:50px;">{spk_bulan_ini}</h3>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"""
+            <div style="text-align:center; white-space:nowrap;">
+                <h5 style="margin-bottom:0px;">Kerusakan Bulan Ini</h5>
+                <h3 style="margin-top: -10px; font-size:50px;">{total_kerusakan_bulan_ini}</h3>
+            </div>
+        """, unsafe_allow_html=True)
+
+    # Garis pembatas
+    st.markdown("<hr>", unsafe_allow_html=True)
 
 
     
-new_data = None
+    st.header("Daftar Forklift Yang Akan Ganti Oli")
+    
+    # --- Load database oli ---
+    df_oli = read_db(DATA_OLI)
+
+    # Hitung estimasi sisa HM kalau belum ada
+    for col in [
+        "Estimasi HM Hari Ini",
+        "Sisa HM Ganti Oli mesin",
+        "Sisa HM Ganti Oli Hidrolik",
+        "Sisa HM Ganti Oli Transmisi",
+        "Sisa HM Ganti Oli Gardan"
+    ]:
+        if col not in df_oli.columns:
+            df_oli[col] = 0
+
+    # --- Filter forklift yang sisa HM di salah satu kolom ≤ 147 ---
+    kondisi_perlu_ganti = (
+        (df_oli["Sisa HM Ganti Oli mesin"]      <= 147) |
+        (df_oli["Sisa HM Ganti Oli Hidrolik"]   <= 147) |
+        (df_oli["Sisa HM Ganti Oli Transmisi"]  <= 147) |
+        (df_oli["Sisa HM Ganti Oli Gardan"]     <= 147)
+    )
+
+    df_perlu_ganti = df_oli.loc[kondisi_perlu_ganti, [
+        "No. FK", "Status",
+        "Estimasi HM Hari Ini",
+        "Sisa HM Ganti Oli mesin",
+        "Sisa HM Ganti Oli Hidrolik",
+        "Sisa HM Ganti Oli Transmisi",
+        "Sisa HM Ganti Oli Gardan"
+    ]]
+    
+    df_perlu_ganti = df_perlu_ganti.reset_index(drop=True)
+    df_perlu_ganti.index = df_perlu_ganti.index + 1
+
+    if df_perlu_ganti.empty:
+        st.success("Semua forklift masih dalam kondisi aman 🚛👍")
+    else:
+        def highlight_status(val):
+            try:
+                v = float(val)
+                if v <= 63:
+                    return "background-color: red"
+                elif v <= 147:
+                    return "background-color: yellow"
+            except:
+                pass
+            return ""
+
+        styled_dashboard_df = (
+            df_perlu_ganti
+            .style
+            .format({
+                "Estimasi HM Hari Ini": "{:.0f}",
+                "Sisa HM Ganti Oli mesin": "{:.0f}",
+                "Sisa HM Ganti Oli Hidrolik": "{:.0f}",
+                "Sisa HM Ganti Oli Transmisi": "{:.0f}",
+                "Sisa HM Ganti Oli Gardan": "{:.0f}",
+            })
+            .applymap(highlight_status, subset=[
+                "Sisa HM Ganti Oli mesin",
+                "Sisa HM Ganti Oli Hidrolik",
+                "Sisa HM Ganti Oli Transmisi",
+                "Sisa HM Ganti Oli Gardan"
+            ])
+        )
+
+        st.dataframe(styled_dashboard_df)
+
+    # PEMISAH PERTAMA
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    try:
+        # Load database kerusakan
+        df_kerusakan = read_db(DATA_SPK)
+
+        # Pastikan kolom 'Tanggal' datetime
+        df_kerusakan['Tanggal'] = pd.to_datetime(df_kerusakan['Tanggal'], errors='coerce')
+
+        # Pastikan kolom teks jadi string
+        df_kerusakan['Area / Mesin'] = df_kerusakan['Area / Mesin'].astype(str)
+        df_kerusakan['Jenis Kerusakan'] = df_kerusakan['Jenis Kerusakan'].astype(str)
+
+        # Kamus keyword kerusakan lengkap TANPA 'Cek rutin'
+        dict_keyword_kerusakan = {
+            "Ganti oli mesin": "ganti oli mesin",
+            "Kontrol valve rembes": "kontrol valve rembes",
+            "Lift turun sendiri": "lift turun sendiri",
+            "Lampu utama mati": "lampu utama",
+            "Ban aus/pecah/oleng": "ban",
+            "Dinamo / baut dinamo bermasalah": "dinamo",
+            "Pin tie rod kocak/aus": "pin tie rod",
+            "Kelistrikan bermasalah": "kelistrikan",
+            "Per pedal kopling putus": "pedal kopling",
+            "Stir liar": "stir",
+            "Klakson mati": "klakson",
+            "Seal rem atas rembes": "seal rem atas",
+            "Bearing lift": "bearing lift",
+            "Selang hidrolik": "selang hidrolik",
+            "Mesin mulai ngobos": "mesin mulai",
+            "Suara mesin kasar": "mesin kasar",
+            "Seal stick rembes": "seal stick",
+            "Accu": "accu",
+            "Persneling / selang perseneling": "perseneling",
+            "Suara transmisi kasar": "transmisi kasar",
+            "Kampas kopling": "kampas kopling",
+            "Baut pangkon / pangkon": "pangkon",
+            "Pompa hidrolik rembes": "pompa hidrolik",
+            "Rem kurang pakem": "rem kurang",
+            "Lampu stoper dan sein mati": "lampu stoper",
+            "Bushing beam axle aus": "bushing",
+            "Sekring": "sekring",
+            "Ganti oli transmisi": "oli transmisi",
+            "Knalpot bocor": "knalpot",
+            "Garpu/fork miring": "fork",
+            "Ganti oli gardan": "oli gardan",
+            "Ganti oli hidrolik": "oli hidrolik"
+        }
+
+        # Hitung total tiap jenis kerusakan
+        summary = []
+        for kerusakan, keyword in dict_keyword_kerusakan.items():
+            total = df_kerusakan[
+                df_kerusakan['Jenis Kerusakan'].str.contains(keyword, case=False, na=False)
+            ].shape[0]
+            summary.append({"Jenis Kerusakan": kerusakan, "Total": total})
+
+        summary_df = pd.DataFrame(summary)
+
+        # Urutkan & ambil 5 besar
+        top5_df = summary_df.sort_values(by="Total", ascending=False).head(5).reset_index(drop=True)
+        top5_df.index = top5_df.index + 1  # Mulai index dari 1
+        top5_df.index.name = "No."
+
+        st.header("Visualisasi Top 5 Kerusakan Pada Forklift")
+        chart = alt.Chart(top5_df.reset_index()).mark_bar().encode(
+            x=alt.X('Total:Q', title='Jumlah Kerusakan'),
+            y=alt.Y('Jenis Kerusakan:N', sort='-x', title='Jenis Kerusakan'),
+            tooltip=['Jenis Kerusakan', 'Total']
+        ).properties(
+            width=600,
+            height=400
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+
+    except FileNotFoundError:
+        st.error("File database kerusakan tidak ditemukan.")
+    except Exception as e:
+        st.error(f"Terjadi error: {e}")
+
+    # PEMISAH KEDUA
+    st.markdown("<hr>", unsafe_allow_html=True)
+
+    st.header('10 SPK Yang Terakhir Masuk')
+    df_kerusakan = df_kerusakan.sort_values("Tanggal", ascending=False)
+    df_kerusakan = df_kerusakan.reset_index(drop=True)
+    st.dataframe(df_kerusakan[:10])
 
 
 
@@ -230,6 +435,7 @@ if menu == "SPK":
     try:
         df = df.sort_values("Tanggal", ascending=False)
         df = df.reset_index(drop=True)
+        df["Nomor SPK"] = df["Nomor SPK"].astype(str)
         st.dataframe(df)
     except Exception as e:
         st.error(f"Gagal membaca file SPK: {e}")
@@ -355,7 +561,7 @@ if menu == "SPK":
                         })
 
                         updated_data = pd.concat([df, new_data], ignore_index=True)
-                        write_to_sheet(DATA_SPK, updated_data)
+                        save_db(DATA_SPK, updated_data)
 
                         st.success("Berhasil")
 
@@ -374,7 +580,7 @@ if menu == "SPK":
         search_spk = st.text_input("Cari berdasarkan Nomor SPK (untuk Edit)", key="search_spk")
         edit_mode = False
 
-        df = read_sheet(DATA_SPK)
+        df = read_db(DATA_SPK)
 
         if search_spk:
             matched_data = df[df["Nomor SPK"] == search_spk]
@@ -481,7 +687,7 @@ if menu == "SPK":
 
 
 
-                        write_to_sheet(DATA_SPK, df)
+                        save_db(DATA_SPK, df)
 
                         st.success("Data berhasil diperbarui!")
                         st.cache_data.clear()
@@ -513,7 +719,7 @@ if menu == "SPK":
                     if konfirmasi_hapus:
                         if st.button("Hapus Data SPK Sekarang", icon=":material/delete:", use_container_width=True):
                             df = df[df["Nomor SPK"] != hapus_nomor_spk]
-                            write_to_sheet(DATA_SPK, df)
+                            save_db(DATA_SPK, df)
                             st.success("Data SPK berhasil dihapus.")
                             st.session_state.hapusData = False
                             st.rerun()
@@ -622,8 +828,7 @@ if menu == "HM 3 Shift":
             df_input[col] = df_input[col].astype(str)
 
     # Tampilkan editor
-    df_edited = st.data_editor(df_input, num_rows="dynamic", use_container_width=True, column_config={
-        "Tanggal": st.column_config.Column("Tanggal", pinned=True)})
+    df_edited = st.data_editor(df_input, num_rows="dynamic", use_container_width=True)
 
     # Tombol simpan
     if st.button("Simpan Data", icon=":material/save:", use_container_width=True):
@@ -631,7 +836,7 @@ if menu == "HM 3 Shift":
         df_final = pd.concat([df_old_filtered, df_edited], ignore_index=True)
         df_final = df_final.sort_values(by='Tanggal')
         df_final["Tanggal"] = pd.to_datetime(df_final["Tanggal"]).dt.strftime("%Y-%m-%d")
-        write_to_sheet(HM_HARIAN, df_final)
+        save_db(HM_HARIAN, df_final)
         st.success("Data berhasil disimpan!")
         st.rerun()
         
@@ -699,7 +904,7 @@ if menu == "Pemakaian Harian":
     usage_df_to_save['Tanggal'] = usage_df_to_save['Tanggal'].astype(str)
 
     # Tulis ke Google Sheet
-    write_to_sheet(PENGGUNAAN_FK, usage_df_to_save)
+    save_db(PENGGUNAAN_FK, usage_df_to_save)
 
 
     # Dua field untuk memasukkan rentang tanggal (default adalah tanggal hari ini)
@@ -812,7 +1017,7 @@ if menu == "Tingkat Kerusakan":
     # Fungsi untuk load data penggunaan forklift saja
     @st.cache_data
     def load_penggunaan():
-        penggunaan = read_sheet(PENGGUNAAN_FK)
+        penggunaan = read_db(PENGGUNAAN_FK)
         penggunaan["Tanggal"] = pd.to_datetime(penggunaan["Tanggal"]).dt.date
         return penggunaan
 
@@ -899,7 +1104,7 @@ if menu == "Tingkat Kerusakan":
         
         
 if menu == "Monitoring Forklift":
-    # Baca file HM_Harian.xlsx
+    # Baca database hm harian
     all_columns = df_hmharian.columns.tolist()
 
     forklifts = sorted({
@@ -941,7 +1146,7 @@ if menu == "Monitoring Forklift":
         estimasi_dict[fk] = (last_hm + 21) if last_hm is not None else None
 
     # --- Langkah 2: Baca data_oli dan tambahkan kolom Estimasi HM Hari Ini ---
-    df_oli = read_sheet(DATA_OLI)
+    df_oli = read_db(DATA_OLI)
     df_oli["Estimasi HM Hari Ini"] = df_oli["No. FK"].map(estimasi_dict)
 
     # Konversi ke numerik dan isi NaN dengan 0
@@ -1028,14 +1233,12 @@ if menu == "Monitoring Forklift":
         df_oli["Sisa HM Ganti Oli Gardan"]     = df_oli["HM Terakhir Saat Ganti Oli Gardan"]    + 2500 - df_oli["Estimasi HM Hari Ini"]
 
         # Simpan kembali
-        write_to_sheet(DATA_OLI, df_oli)
+        save_db(DATA_OLI, df_oli)
         st.success("Data berhasil disimpan")
         st.rerun()
         
 if menu == "Tabel Kerusakan":
     st.title("Tabel Rekap Kerusakan Forklift")
-
-    
 
     try:
 
